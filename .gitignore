@@ -18,3 +18,4 @@ setup.log
 *.spot
 *.native
 _build
+version.ml

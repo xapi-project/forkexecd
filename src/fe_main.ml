@@ -1,12 +1,11 @@
-
-(** We write our PID here when we're ready to receive connections. *)
-let default_pidfile = "/var/run/fe.pid"
+(* We'll create our control sockets here *)
+let socket_dir = ref "/var/xapi/forker"
 
 open Fe_debug
 
 let setup sock cmdargs id_to_fd_map syslog_stdout env =
-  let fd_sock_path = Printf.sprintf "/var/xapi/forker/fd_%s" 
-    (Uuidm.to_string (Uuidm.create `V4)) in
+  let fd_sock_path = Printf.sprintf "%s/fd_%s"
+    !socket_dir (Uuidm.to_string (Uuidm.create `V4)) in
   let fd_sock = Fecomms.open_unix_domain_sock () in
   Unixext.unlink_safe fd_sock_path;
   debug "About to bind to %s" fd_sock_path;
@@ -14,7 +13,7 @@ let setup sock cmdargs id_to_fd_map syslog_stdout env =
   Unix.listen fd_sock 5;
   debug "bound, listening";
   let result = Unix.fork () in
-  if result=0 
+  if result=0
   then begin
     debug "Child here!";
     let result2 = Unix.fork () in
@@ -22,9 +21,9 @@ let setup sock cmdargs id_to_fd_map syslog_stdout env =
       debug "Grandchild here!";
       (* Grandchild *)
       let state = {
-	Child.cmdargs=cmdargs; 
+	Child.cmdargs=cmdargs;
 	env=env;
-	id_to_fd_map=id_to_fd_map; 
+	id_to_fd_map=id_to_fd_map;
 	syslog_stdout={Child.enabled=syslog_stdout.Fe.enabled; Child.key=syslog_stdout.Fe.key};
 	ids_received=[];
 	fd_sock2=None;
@@ -43,24 +42,36 @@ let setup sock cmdargs id_to_fd_map syslog_stdout env =
     Some {Fe.fd_sock_path=fd_sock_path}
   end
 
+let doc = String.concat "\n" [
+  "This is the xapi toolstack process management daemon.";
+  "";
+  "Forkexecd looks after a set of subprocesses on behalf of xapi. The main xapi process avoids forking to avoid problems with pthreads.";
+]
+
 let _ =
-  let pidfile = ref default_pidfile in
-  let daemonize = ref false in
- 
-  Arg.parse (Arg.align [
-	       "-daemon", Arg.Set daemonize, "Create a daemon";
-	       "-pidfile", Arg.Set_string pidfile, Printf.sprintf "Set the pid file (default \"%s\")" !pidfile;
-	     ])
-    (fun _ -> failwith "Invalid argument")
-    "Usage: fe [-daemon] [-pidfile filename]";
+  let options = [
+    "socket-dir", Arg.Set_string socket_dir, (fun () -> !socket_dir), "Directory to place Unix domain sockets";
+  ] in
+  (match Xcp_service.configure2
+    ~name:(Filename.basename Sys.argv.(0))
+    ~version:Version.version
+    ~doc ~options () with
+  | `Ok () -> ()
+  | `Error m ->
+    error "%s" m;
+    exit 1);
 
-  if !daemonize then Unixext.daemonize ();
+  Xcp_service.maybe_daemonize ();
 
-  Sys.set_signal Sys.sigpipe (Sys.Signal_ignore);
-
-  let main_sock = Fecomms.open_unix_domain_sock_server "/var/xapi/forker/main" in
-
-  Unixext.pidfile_write !pidfile;
+  let main_sock =
+    try
+      Fecomms.open_unix_domain_sock_server (Filename.concat !socket_dir "main")
+    with Unix.Unix_error(_,_,_) as e ->
+      error "Failed to create Unix domain socket in %s: %s" !socket_dir (Printexc.to_string e);
+      Printf.fprintf stderr "Please check the directory %s is what you intended; if not overrride it with --socket-dir=<DIR>.\n" !socket_dir;
+      Printf.fprintf stderr "Please check the directory exists.\n";
+      Printf.fprintf stderr "Please check this process has sufficient permissions to write in the directory.\n";
+      exit 1 in
 
   (* At this point the init.d script should return and we are listening on our socket. *)
 
@@ -77,12 +88,9 @@ let _ =
 		  Fecomms.write_raw_rpc sock (Fe.Setup_response response);
 		  Unix.close sock;
 	      | _ -> ())
-	| _ -> 
+	| _ ->
 	    debug "Ignoring invalid message";
 	    Unix.close sock
-    with e -> 
+    with e ->
       debug "Caught exception at top level: %s" (Printexc.to_string e);
   done
-      
-    
-      

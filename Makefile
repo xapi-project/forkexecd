@@ -18,8 +18,11 @@ setup.bin: setup.ml
 setup.data: setup.bin
 	@./setup.bin -configure
 
-build: setup.data setup.bin
+build: setup.data setup.bin version.ml
 	@./setup.bin -build -j $(J)
+
+version.ml: VERSION
+	echo "let version = \"$(shell cat VERSION)\"" > lib/version.ml
 
 doc: setup.data setup.bin
 	@./setup.bin -doc -j $(J)
