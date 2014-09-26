@@ -71,9 +71,9 @@ type 'a result = Success of string * 'a | Failure of string * exn
 (** Creates a temporary file and opens it for logging. The fd is passed to the function
     'f'. The logfile is guaranteed to be closed afterwards, and unlinked if either the delete flag is set or the call fails. If the
     function 'f' throws an error then the log file contents are read in *)
-let with_logfile_fd ?(delete = true) prefix f = 
+let with_logfile_fd ?(delete = true) prefix f =
   let logfile = Filename.temp_file prefix ".log" in
-  let read_logfile () = 
+  let read_logfile () =
     let contents = Unixext.string_of_file logfile in
     Unix.unlink logfile;
     contents in
@@ -90,20 +90,22 @@ let with_logfile_fd ?(delete = true) prefix f =
 
 exception Spawn_internal_error of string * string * Unix.process_status
 
-let id = ref 0 
+let id = ref 0
 
 type syslog_stdout_t =
   | NoSyslogging
   | Syslog_DefaultKey
   | Syslog_WithKey of string
 
+let socket_dir = ref "/var/xapi/forker"
+
 (** Safe function which forks a command, closing all fds except a whitelist and
     having performed some fd operations in the child *)
 let safe_close_and_exec ?env stdin stdout stderr (fds: (string * Unix.file_descr) list) ?(syslog_stdout=NoSyslogging)
     (cmd: string) (args: string list) =
 
-  let sock = Fecomms.open_unix_domain_sock_client "/var/xapi/forker/main" in
-  let stdinuuid = Uuidm.to_string (Uuidm.create `V4) in
+  let sock = Fecomms.open_unix_domain_sock_client (Filename.concat !socket_dir "main") in
+	let stdinuuid = Uuidm.to_string (Uuidm.create `V4) in
   let stdoutuuid = Uuidm.to_string (Uuidm.create `V4) in
   let stderruuid = Uuidm.to_string (Uuidm.create `V4) in
 
@@ -113,10 +115,10 @@ let safe_close_and_exec ?env stdin stdout stderr (fds: (string * Unix.file_descr
   let remove_fd_from_close_list fd = fds_to_close := List.filter (fun fd' -> fd' <> fd) !fds_to_close in
   let close_fds () = List.iter (fun fd -> Unix.close fd) !fds_to_close in
 
-  finally (fun () -> 
+  finally (fun () ->
 
     let maybe_add_id_to_fd_map id_to_fd_map (uuid,fd,v) =
-      match v with 
+      match v with
 	| Some _ -> (uuid, fd)::id_to_fd_map
 	| None -> id_to_fd_map
     in
@@ -124,7 +126,7 @@ let safe_close_and_exec ?env stdin stdout stderr (fds: (string * Unix.file_descr
     let predefined_fds = [
       (stdinuuid, Some 0, stdin);
       (stdoutuuid, Some 1, stdout);
-      (stderruuid, Some 2, stderr)] 
+      (stderruuid, Some 2, stderr)]
     in
 
     (* We don't care what fd these end up as - they're named in the argument list for us, and the
@@ -132,7 +134,7 @@ let safe_close_and_exec ?env stdin stdout stderr (fds: (string * Unix.file_descr
     let dest_named_fds = List.map (fun (uuid,_) -> (uuid,None)) fds in
     let id_to_fd_map = List.fold_left maybe_add_id_to_fd_map dest_named_fds predefined_fds in
 
-    let env = match env with 
+    let env = match env with
       |	Some e -> e
       | None -> [| "PATH=" ^ (String.concat ":" default_path) |]
     in
@@ -146,13 +148,13 @@ let safe_close_and_exec ?env stdin stdout stderr (fds: (string * Unix.file_descr
     let response = Fecomms.read_raw_rpc sock in
 
     let s = match response with
-      | Fe.Setup_response s -> s 
+      | Fe.Setup_response s -> s
       | _ -> failwith "Failed to communicate with forking executioner"
     in
 
     let fd_sock = Fecomms.open_unix_domain_sock_client s.Fe.fd_sock_path in
     add_fd_to_close_list fd_sock;
-    
+
     let send_named_fd uuid fd =
       Fecomms.send_named_fd fd_sock uuid fd;
     in
@@ -163,24 +165,24 @@ let safe_close_and_exec ?env stdin stdout stderr (fds: (string * Unix.file_descr
       send_named_fd uuid srcfd) fds;
     Fecomms.write_raw_rpc sock Fe.Exec;
     match Fecomms.read_raw_rpc sock with Fe.Execed pid -> (sock, pid))
-   
+
     close_fds
 
 
 let execute_command_get_output_inner ?env ?stdin ?(syslog_stdout=NoSyslogging) cmd args =
-	let stdinandpipes = Opt.map (fun str -> 
+	let stdinandpipes = Opt.map (fun str ->
 		let (x,y) = Unix.pipe () in
 		(str,x,y)) stdin in
-	Pervasiveext.finally (fun () -> 
+	Pervasiveext.finally (fun () ->
 		match with_logfile_fd "execute_command_get_out" (fun out_fd ->
 			with_logfile_fd "execute_command_get_err" (fun err_fd ->
 				let (sock,pid) = safe_close_and_exec ?env (Opt.map (fun (_,fd,_) -> fd) stdinandpipes) (Some out_fd) (Some err_fd) [] ~syslog_stdout cmd args in
 				Opt.map (fun (str,_,wr) -> Unixext.really_write_string wr str) stdinandpipes;
 				match Fecomms.read_raw_rpc sock with
 					| Fe.Finished x -> Unix.close sock; x
-					| _ -> Unix.close sock; failwith "Communications error"	    
+					| _ -> Unix.close sock; failwith "Communications error"
 			)) with
-			| Success(out,Success(err,(status))) -> 
+			| Success(out,Success(err,(status))) ->
 				begin
 					match status with
 						| Fe.WEXITED 0 -> (out,err)

@@ -14,7 +14,7 @@
 
 (** Functions to execute processes, pass file descriptors around and return results *)
 
-(** The low-level Unix.fork(), Unix.exec*() functions and friends are not safe to 
+(** The low-level Unix.fork(), Unix.exec*() functions and friends are not safe to
     call in multithreaded programs for two reasons:
     + parallel threads opening new file descriptors will have these descriptors captured
       by a fork(). This leads to annoying glitches like (for example) attempts to 'umount'
@@ -25,7 +25,7 @@
 
     Additionally Unix.fork(), Unix.exec*() are very low-level primitives. When we call
     these functions what we actually want to do is run some separate process with certain
-    file-descriptors, optionally returning results. 
+    file-descriptors, optionally returning results.
 
 	The interface in this module
     + is higher-level than Unix.fork(), Unix.exec*()
@@ -40,12 +40,12 @@ type syslog_stdout_t =
   | Syslog_WithKey of string
 
 (** [execute_command_get_output cmd args] runs [cmd args] and returns (stdout, stderr)
-	on success (exit 0). On failure this raises 
+	on success (exit 0). On failure this raises
     [Spawn_internal_error(stderr, stdout, Unix.process_status)] *)
 val execute_command_get_output : ?env:string array -> ?syslog_stdout:syslog_stdout_t -> string -> string list -> string * string
 
 (** [execute_command_get_output cmd args stdin] runs [cmd args], passes in the string [stdin] and returns (stdout, stderr)
-	on success (exit 0). On failure this raises 
+	on success (exit 0). On failure this raises
     [Spawn_internal_error(stderr, stdout, Unix.process_status)] *)
 val execute_command_get_output_send_stdin : ?env:string array -> ?syslog_stdout:syslog_stdout_t -> string -> string list -> string -> string * string
 
@@ -86,8 +86,8 @@ val waitpid_nohang : pidty -> (int * Unix.process_status)
 	process will not persist as a zombie. *)
 val dontwaitpid : pidty -> unit
 
-(** [waitpid_fail_if_bad_exit p] calls waitpid on [p] and throws [Subprocess_failed x] if the 
-	process exits with non-zero code x and [Subprocess_killed x] if the process is killed by a 
+(** [waitpid_fail_if_bad_exit p] calls waitpid on [p] and throws [Subprocess_failed x] if the
+	process exits with non-zero code x and [Subprocess_killed x] if the process is killed by a
 	signal and exits with non-zero code x. *)
 val waitpid_fail_if_bad_exit : pidty -> unit
 
@@ -101,5 +101,5 @@ type 'a result =
     function [f] throws an error then the log file contents are read in *)
 val with_logfile_fd : ?delete:bool -> string -> (Unix.file_descr -> 'a) -> 'a result
 
-
-
+(** The name of the directory used by the xapi-fe daemon *)
+val socket_dir: string ref
