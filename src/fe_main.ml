@@ -43,9 +43,9 @@ let setup sock cmdargs id_to_fd_map syslog_stdout env =
   end
 
 let doc = String.concat "\n" [
-  "This is the xapi toolstack process management daemon.";
+  "Xapi-fe is the xapi toolstack process management daemon.";
   "";
-  "Forkexecd looks after a set of subprocesses on behalf of xapi. The main xapi process avoids forking to avoid problems with pthreads.";
+  "Xapi-fe looks after a set of subprocesses on behalf of xapi. The main xapi process avoids forking to avoid problems with pthreads.";
 ]
 
 let _ =
