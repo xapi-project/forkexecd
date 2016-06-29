@@ -1,4 +1,4 @@
-type syslog_stdout_t = {
+type syslog_std_t = {
   enabled : bool;
   key : string option;
 }
@@ -7,7 +7,8 @@ and setup_cmd = {
   cmdargs : string list;
   env : string list;
   id_to_fd_map : (string * int option) list;
-  syslog_stdout : syslog_stdout_t;
+  syslog_stdout : syslog_std_t;
+  syslog_stderr : syslog_std_t;
 } 
 
 and setup_response = {

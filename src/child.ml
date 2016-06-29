@@ -5,7 +5,7 @@ let debug (fmt : ('a, unit, string, unit) format4) = (Printf.kprintf (fun s -> P
 
 exception Cancelled
 
-type syslog_stdout_t = {
+type syslog_std_t = {
 	enabled : bool;
 	key : string option;
 }
@@ -14,11 +14,13 @@ type state_t = {
 	cmdargs : string list;
 	env : string list;
 	id_to_fd_map : (string * int option) list;
-	syslog_stdout : syslog_stdout_t;
+	syslog_stdout : syslog_std_t;
+	syslog_stderr : syslog_std_t;
 	ids_received : (string * Unix.file_descr) list;
 	fd_sock2 : Unix.file_descr option;
 	finished : bool;
 }
+
 
 open Fe_debug
 
@@ -173,13 +175,22 @@ let run state comms_sock fd_sock fd_sock_path =
 		debug "I've received the following fds: [%s]\n"
 			(String.concat ";" (List.map (fun fd -> string_of_int (Fd_send_recv.int_of_fd fd)) fds));
 
-		let in_childlogging = ref None in
-		let out_childlogging = ref None in
+		let in_childlogging_stdout = ref None in
+		let out_childlogging_stdout = ref None in
 		if state.syslog_stdout.enabled then begin
 			(* Create a pipe used to listen to the child process's stdout *)
-			let (in_fd, out_fd) = Unix.pipe () in
-			in_childlogging := Some in_fd;
-			out_childlogging := Some out_fd
+			let (in_fd_stdout, out_fd_stdout) = Unix.pipe () in
+			in_childlogging_stdout := Some in_fd_stdout;
+			out_childlogging_stdout := Some out_fd_stdout
+		end;
+
+		let in_childlogging_stderr = ref None in
+		let out_childlogging_stderr = ref None in
+		if state.syslog_stderr.enabled then begin
+			(* Create a pipe used to listen to the child process's stdout *)
+			let (in_fd_stderr, out_fd_stderr) = Unix.pipe () in
+			in_childlogging_stderr := Some in_fd_stderr;
+			out_childlogging_stderr := Some out_fd_stderr
 		end;
 
 		let result = Unix.fork () in
@@ -188,7 +199,9 @@ let run state comms_sock fd_sock fd_sock_path =
 			(* child *)
 
 			(* Make the child's stdout go into the pipe *)
-			Opt.iter (fun out_fd -> Unix.dup2 out_fd Unix.stdout) !out_childlogging;
+			Opt.iter (fun out_fd -> Unix.dup2 out_fd Unix.stdout) !out_childlogging_stdout;
+			Opt.iter (fun out_fd -> Unix.dup2 out_fd Unix.stderr) !out_childlogging_stderr;
+
 
 			(* Now let's close everything except those fds mentioned in the ids_received list *)
 			Unixext.close_all_fds_except ([Unix.stdin; Unix.stdout; Unix.stderr] @ fds);
@@ -204,17 +217,29 @@ let run state comms_sock fd_sock fd_sock_path =
 			List.iter (fun fd -> Unix.close fd) fds;
 
 			(* Close the end of the pipe that's only supposed to be written to by the child process. *)
-			Opt.iter Unix.close !out_childlogging;
+			Opt.iter Unix.close !out_childlogging_stdout;
+			Opt.iter Unix.close !out_childlogging_stderr;
 
-			Opt.iter
-				(fun in_fd ->
-					let key = (match state.syslog_stdout.key with None -> Filename.basename name | Some key -> key) in
-					(* Read from the child's stdout and write each one to syslog *)
-					Unixext.lines_iter
-						(fun line ->
-							Fe_debug.info "%s[%d]: %s" key result line
-						) (Unix.in_channel_of_descr in_fd)
-				) !in_childlogging;
+			let send_log = ref Fe_debug.info in
+			let log_fd = ref state.syslog_stdout.key in
+			let rec polling fds =
+				let (fds, _, _ ) = Unix.select fds [] [] (-1.0) in
+				let fds = List.filter (fun fd ->
+					Opt.iter (fun x -> log_fd := state.syslog_stderr.key; send_log := Fe_debug.error; ) !out_childlogging_stderr;
+					let key = (match !log_fd with None -> Filename.basename name | Some key -> key) in
+					try
+						let line = input_line (Unix.in_channel_of_descr fd) in
+						!send_log "%s[%d]: %s" key result line;
+						true
+					with e ->
+						false
+					) fds
+				in
+				match fds with
+				| [] -> ()
+				| _ -> polling fds
+			in
+			polling [Opt.unbox !in_childlogging_stdout ; Opt.unbox !in_childlogging_stderr];
 
 			(* At this point either:
 			 * 1) lines_iter has received End_of_file, which means the child has
