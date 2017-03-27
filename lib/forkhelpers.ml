@@ -42,8 +42,8 @@ let waitpid (sock, pid) =
 	  | Fe.Finished (Fe.WSTOPPED n) -> (pid,Unix.WSTOPPED n)
 	end
 
-let waitpid_nohang ((sock, _) as x) =
-	(match Unix.select [sock] [] [] 0.0 with
+let waitpid_nohang ((sock, _) as x) timeout =
+	(match Unix.select [sock] [] [] timeout with
 	  | ([s],_,_) -> waitpid x
 	  | _ -> (0,Unix.WEXITED 0))
 
