@@ -94,6 +94,8 @@ val dontwaitpid : pidty -> unit
 	signal and exits with non-zero code x. *)
 val waitpid_fail_if_bad_exit : pidty -> unit
 
+val waitpid_async : pidty -> callback:(exn option -> unit) -> unit
+
 (** Result returned by {!with_logfile_fd}. *)
 type 'a result =
 | Success of string * 'a	(** The function call completed successfully. *)
