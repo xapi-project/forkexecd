@@ -65,6 +65,9 @@ let waitpid_fail_if_bad_exit ty =
     | (Unix.WSIGNALED n) -> raise (Subprocess_killed n)
     | (Unix.WSTOPPED n) -> raise (Subprocess_killed n)
 
+let waitpid_async (sock, pid) ~callback =
+	ignore(Thread.create (fun x->callback (try waitpid_fail_if_bad_exit x;None with e->Some e)) (sock, pid))
+
 let getpid (sock, pid) = pid
 
 type 'a result = Success of string * 'a | Failure of string * exn
