@@ -77,6 +77,11 @@ let show ~service =
 
 let stop ~service =
   action ~service "stop";
+  (* Stopping shouldn't fail because it should fall back to SIGKILL which should almost always work,
+   * unless there is a kernel bug that keeps a process stuck.
+   * In the unlikely scenario that this does fail we leave the transient service file behind
+   * so that the failure can be investigated.
+   * *)
   let status = show ~service in
   (* allow systemd to garbage-collect the status and the unit, preventing leaks.
    * See CollectMode in systemd.unit(5) for details. *)
@@ -93,3 +98,18 @@ let is_active ~service =
 
 let exists ~service =
   Sys.file_exists (Filename.concat run_path (service ^ ".service"))
+
+let start_transient ?env ?properties ~service cmd args =
+  if exists ~service then
+    (* this can only happen if there is a bug in the caller *)
+    invalid_arg (Printf.sprintf "Tried to start %s twice" service);
+  try
+    start_transient ?env ?properties ~service cmd args
+  with e ->
+    Backtrace.is_important e;
+    (* If start failed we do not know what state the service is in:
+     * try to stop it and clean up.
+     * Stopping could fail as well, in which case report the original exception.
+     * *)
+    begin try let (_:status) = stop ~service in () with _ -> () end;
+    raise e
