@@ -9,4 +9,4 @@ trap cleanup EXIT
 for _ in $(seq 1 10); do
 	test -S /var/xapi/forker/main || sleep 1
 done
-./fe_test.exe 16
+echo "" | ./fe_test.exe 16
